@@ -2,6 +2,7 @@ package ru.demoexam.algorithms;
 
 import javafx.application.Application;
 import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -10,10 +11,13 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextArea;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
@@ -22,6 +26,9 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import ru.demoexam.algorithms.api.ApiDataType;
+import ru.demoexam.algorithms.api.ApiResponse;
+import ru.demoexam.algorithms.api.TransferSimulatorClient;
 
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
@@ -29,6 +36,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 
 /** Desktop version of the original web exercise. */
 public class AlgorithmsApp extends Application {
@@ -46,6 +54,10 @@ public class AlgorithmsApp extends Application {
     private final ListView<String> roster = new ListView<>(people);
     private final Label notice = new Label();
     private final PauseTransition noticeDelay = new PauseTransition(javafx.util.Duration.seconds(1.7));
+    private final TransferSimulatorClient transferSimulatorClient = new TransferSimulatorClient();
+    private final ComboBox<ApiDataType> apiDataTypeComboBox = new ComboBox<>();
+    private final TextArea apiValueOutput = new TextArea();
+    private final Label apiValidationResult = new Label("Выберите тип данных и получите значение с сервера.");
 
     @Override
     public void start(Stage stage) {
@@ -55,22 +67,27 @@ public class AlgorithmsApp extends Application {
                 new Label("Алгоритмы — практика"),
                 new Label("Базовые операции, ввод и вывод данных, работа со списком."),
                 calculatorPane(),
-                namesPane());
+                namesPane(),
+                apiPane());
         content.setPadding(new Insets(24));
 
-        BorderPane root = new BorderPane(content);
+        ScrollPane contentScrollPane = new ScrollPane(content);
+        contentScrollPane.setFitToWidth(true);
+        contentScrollPane.setFitToHeight(true);
+
+        BorderPane root = new BorderPane(contentScrollPane);
         root.setBottom(notice);
         BorderPane.setMargin(notice, new Insets(0, 24, 18, 24));
         notice.setManaged(false);
         notice.setVisible(false);
 
-        Scene scene = new Scene(root, 720, 620);
+        Scene scene = new Scene(root, 720, 760);
         scene.getStylesheets().add(getClass().getResource("app.css").toExternalForm());
         scene.addEventFilter(KeyEvent.KEY_PRESSED, this::handleGlobalKeys);
 
         stage.setTitle("Алгоритмы — практика");
         stage.setMinWidth(580);
-        stage.setMinHeight(520);
+        stage.setMinHeight(600);
         stage.setScene(scene);
         stage.show();
     }
@@ -79,6 +96,11 @@ public class AlgorithmsApp extends Application {
         leftNumber.setPromptText("5");
         rightNumber.setPromptText("6");
         personName.setPromptText("Например: инноКЕнТиЙ");
+        apiDataTypeComboBox.getItems().setAll(ApiDataType.values());
+        apiDataTypeComboBox.getSelectionModel().select(ApiDataType.FULL_NAME);
+        apiValueOutput.setEditable(false);
+        apiValueOutput.setPromptText("Ответ сервера появится здесь");
+        apiValueOutput.setPrefRowCount(2);
 
         roster.setCellFactory(view -> new ListCell<>() {
             private final Label number = new Label();
@@ -138,6 +160,90 @@ public class AlgorithmsApp extends Application {
                 new HBox(8, new Label("Новое имя:"), personName),
                 new HBox(8, add, scan, undo),
                 new Label("Клик — выбрать | ↑ ↓ — навигация | Ctrl+Z — отмена"), roster);
+    }
+
+    private VBox apiPane() {
+        Label heading = new Label("3. Получение данных из внешнего API");
+        heading.getStyleClass().add("section-title");
+        Label serverAddress = new Label("Сервер колледжа: " + TransferSimulatorClient.BASE_URL);
+        serverAddress.getStyleClass().add("server-address");
+        Button fetchApiDataButton = new Button("Получить данные");
+        fetchApiDataButton.setOnAction(event -> fetchApiData(fetchApiDataButton));
+        HBox controls = new HBox(8,
+                new Label("Тип данных:"), apiDataTypeComboBox, fetchApiDataButton);
+        controls.setAlignment(Pos.CENTER_LEFT);
+
+        return new VBox(8, heading, serverAddress, controls,
+                new Label("Полученное значение:"), apiValueOutput,
+                new Label("Результат проверки:"), apiValidationResult);
+    }
+
+    private void fetchApiData(Button fetchApiDataButton) {
+        ApiDataType dataType = apiDataTypeComboBox.getValue();
+        if (dataType == null) {
+            showError("Не выбран тип данных", "Выберите тип данных из списка.");
+            return;
+        }
+
+        fetchApiDataButton.setDisable(true);
+        apiValueOutput.setText("Получение данных...");
+        apiValidationResult.setText("Ожидание ответа сервера.");
+        transferSimulatorClient.request(dataType).whenComplete((response, error) ->
+                Platform.runLater(() -> processApiResponse(fetchApiDataButton, response, error)));
+    }
+
+    private void processApiResponse(
+            Button fetchApiDataButton,
+            ApiResponse response,
+            Throwable error
+    ) {
+        fetchApiDataButton.setDisable(false);
+        if (error != null) {
+            apiValueOutput.clear();
+            apiValidationResult.setText("Проверка не выполнена.");
+            showApiError(error);
+            return;
+        }
+
+        apiValueOutput.setText(response.value());
+        apiValidationResult.setText(validateApiValue(response));
+    }
+
+    private void showApiError(Throwable error) {
+        Throwable cause = error instanceof CompletionException && error.getCause() != null
+                ? error.getCause()
+                : error;
+        if (cause instanceof TransferSimulatorClient.ApiRequestException apiError
+                && apiError.statusCode() == 500) {
+            showError(
+                    "Ошибка сервера",
+                    "Сервер вернул ошибку 500. На экзамене сообщите об этом главному эксперту."
+            );
+            return;
+        }
+
+        showError(
+                "Не удалось подключиться к серверу",
+                "Проверьте, что вы подключены к сети колледжа и эмулятор запущен."
+        );
+    }
+
+    private String validateApiValue(ApiResponse response) {
+        if (response.dataType() != ApiDataType.FULL_NAME) {
+            return "Значение получено. Проверка ФИО применяется только к типу «ФИО клиента».";
+        }
+
+        String value = response.value().trim();
+        if (value.isEmpty()) {
+            return "Проверка не пройдена: ФИО не должно быть пустым.";
+        }
+        if (!value.matches("[\\p{L}\\s-]+")) {
+            return "Проверка не пройдена: найдены запрещённые символы.";
+        }
+        if (value.split("\\s+").length != 3) {
+            return "Проверка не пройдена: ФИО должно состоять из трёх частей.";
+        }
+        return "Проверка пройдена: запрещённых символов нет, ФИО состоит из трёх частей.";
     }
 
     private void calculate(boolean sum) {
@@ -274,6 +380,13 @@ public class AlgorithmsApp extends Application {
     private void showInfo(String text) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION, text, ButtonType.OK);
         alert.setHeaderText(null);
+        alert.showAndWait();
+    }
+
+    private void showError(String title, String text) {
+        Alert alert = new Alert(Alert.AlertType.ERROR, text, ButtonType.OK);
+        alert.setTitle(title);
+        alert.setHeaderText(title);
         alert.showAndWait();
     }
 

@@ -29,3 +29,8 @@
 .label {
     -fx-wrap-text: true;
 }
+
+.server-address {
+    -fx-font-size: 12px;
+    -fx-text-fill: #555555;
+}
