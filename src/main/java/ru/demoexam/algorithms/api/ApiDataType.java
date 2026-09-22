@@ -1,7 +1,8 @@
 package ru.demoexam.algorithms.api;
 
-/** Types of data supported by the TransferSimulator API. */
+/** Типы данных, которые можно получить из API. */
 public enum ApiDataType {
+
     FULL_NAME("ФИО клиента", "fullName"),
     SNILS("СНИЛС", "snils"),
     INN("ИНН", "inn"),
