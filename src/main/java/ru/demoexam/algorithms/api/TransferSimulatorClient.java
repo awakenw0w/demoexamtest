@@ -14,7 +14,7 @@ public class TransferSimulatorClient {
 
     // Адрес локального API
     public static final String BASE_URL =
-            "http://localhost:4444/TransferSimulator";
+            "http://192.168.1.200:4444/TransferSimulator";
 
     // Поиск значения внутри JSON
     private static final Pattern VALUE_PATTERN =
