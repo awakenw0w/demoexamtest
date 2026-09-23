@@ -1,0 +1,36 @@
+.root {
+    -fx-font-family: Arial, sans-serif;
+    -fx-font-size: 14px;
+}
+
+.section-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-padding: 10 0 0 0;
+}
+
+#mathOutput {
+    -fx-font-weight: bold;
+}
+
+.list-cell {
+    -fx-padding: 4px;
+}
+
+.list-cell:filled:selected {
+    -fx-background-color: #eeeeee;
+    -fx-text-fill: black;
+}
+
+.remove-row {
+    -fx-font-weight: bold;
+}
+
+.label {
+    -fx-wrap-text: true;
+}
+
+.server-address {
+    -fx-font-size: 12px;
+    -fx-text-fill: #555555;
+}

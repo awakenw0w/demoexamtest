@@ -8,262 +8,119 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Random;
 
+/** Локальный эмулятор API с валидными и намеренно невалидными данными. */
 public class TransferSimulator {
 
     private static final int PORT = 4444;
     private static final String BASE = "/TransferSimulator";
-
     private static final Random RANDOM = new Random();
 
-    /*
-     * Каждый объект — отдельный тестовый клиент.
-     *
-     * При каждом запросе сервер случайно выбирает одного клиента.
-     * Поэтому:
-     *
-     * GET /fullName
-     *   -> случайное ФИО
-     *
-     * GET /snils
-     *   -> случайный СНИЛС
-     *
-     * GET /inn
-     *   -> случайный ИНН
-     *
-     * и т.д.
-     */
+    /* В каждом наборе есть корректные и некорректные значения. */
+    private static final List<String> FULL_NAMES = List.of(
+            "Иванов Иван Иванович",
+            "Петров Пётр Сергеевич",
+            "Сидоров Алексей Олегович",
+            "Иванов Иван2 Иванович",       // цифра в ФИО
+            "Петров-Петров Пётр Сергеевич", // запрещённый символ
+            "Смирнов Антон",                // не три части
+            "Кузнецов  Максим Игоревич",    // два пробела
+            "Орлов Михаил Александрович!"    // знак пунктуации
+    );
 
-    private static final List<Client> CLIENTS = List.of(
+    private static final List<String> SNILS = List.of(
+            "112-233-445 95",
+            "901-144-044 41",
+            "123-456-789 64",
+            "123--456-789 64",  // два дефиса
+            "123-456--789 64",  // два дефиса
+            "123-456-789-64",   // дефис вместо пробела
+            "12A-456-789 64",   // буква вместо цифры
+            "123-456-7896",     // отсутствует разделитель
+            "123-45-789 64"      // неверное количество цифр в группе
+    );
 
-            // 1. Всё корректно
-            new Client(
-                    "Иванов Иван Иванович",
-                    "123-456-789 64",
-                    "1234567894",
-                    "ivanov.ivan@example.com",
-                    "10 20 123456"
-            ),
+    private static final List<String> INNS = List.of(
+            "7736050003",
+            "500100732259",
+            "1234567894",
+            "123456789",         // 9 цифр
+            "1234567890123",     // 13 цифр
+            "12345A7890",        // буква
+            "1234-567-890",      // разделители
+            " 1234567890"         // лишний пробел
+    );
 
-            // 2. Ошибка в СНИЛС
-            new Client(
-                    "Петров Пётр Сергеевич",
-                    "234-567-890 12",
-                    "2345678908",
-                    "petrov.petr@example.com",
-                    "10 21 234567"
-            ),
+    private static final List<String> EMAILS = List.of(
+            "ivanov.ivan@example.com",
+            "petrov.petr@example.com",
+            "kuznetsov.maxim@",
+            "fedorov.nikitaexample.com",
+            "smirnov@@example.com",
+            "popov kirill@example.com"
+    );
 
-            // 3. Ошибка в ИНН
-            new Client(
-                    "Сидоров Алексей Олегович",
-                    "345-678-901 23",
-                    "3456789011",
-                    "sidorov.alex@example.com",
-                    "10 22 345678"
-            ),
-
-            // 4. Ошибка в email
-            new Client(
-                    "Кузнецов Максим Игоревич",
-                    "456-789-012 38",
-                    "4567890120",
-                    "kuznetsov.maxim@",
-                    "10 23 456789"
-            ),
-
-            // 5. Ошибка в номере карты
-            new Client(
-                    "Смирнов Антон Дмитриевич",
-                    "567-890-123 43",
-                    "5678901234",
-                    "smirnov.anton@example.com",
-                    "1024ABC"
-            ),
-
-            // 6. Несколько ошибок
-            new Client(
-                    "Волков Артём",
-                    "678-901-234 99",
-                    "6789012345",
-                    "volkov.artem@",
-                    "123"
-            ),
-
-            // 7. Всё корректно
-            new Client(
-                    "Морозов Дмитрий Андреевич",
-                    "789-012-345 23",
-                    "7890123454",
-                    "morozov.dmitry@example.com",
-                    "10 26 789012"
-            ),
-
-            // 8. Ошибка в СНИЛС + email
-            new Client(
-                    "Фёдоров Никита Романович",
-                    "890-123-456 00",
-                    "8901234560",
-                    "fedorov.nikitaexample.com",
-                    "10 27 890123"
-            ),
-
-            // 9. Ошибка в ИНН + карте
-            new Client(
-                    "Попов Кирилл Викторович",
-                    "901-234-567 64",
-                    "9012345679",
-                    "popov.kirill@example.com",
-                    "10-28-901234"
-            ),
-
-            // 10. Всё корректно
-            new Client(
-                    "Орлов Михаил Александрович",
-                    "567-890-123 43",
-                    "5678901234",
-                    "orlov.mikhail@example.com",
-                    "10 29 135792"
-            )
+    private static final List<String> IDENTITY_CARDS = List.of(
+            "10 20 123456",
+            "10 26 789012",
+            "1024ABC",
+            "10-28-901234",
+            "10 2 123456",
+            "10 20 12345A",
+            "1020123456"
     );
 
     public static void main(String[] args) throws IOException {
-
-        HttpServer server = HttpServer.create(
-                new InetSocketAddress("localhost", PORT),
-                0
-        );
-
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", PORT), 0);
         server.createContext(BASE, TransferSimulator::handleRequest);
-
         server.setExecutor(null);
         server.start();
 
-        System.out.println();
-        System.out.println("==============================================");
-        System.out.println(" TransferSimulator запущен");
-        System.out.println(" http://localhost:4444/TransferSimulator/");
-        System.out.println(" Клиенты: " + CLIENTS.size());
-        System.out.println(" Режим: случайный клиент");
-        System.out.println("==============================================");
-        System.out.println();
+        System.out.println("TransferSimulator запущен: http://localhost:4444/TransferSimulator/");
+        System.out.println("Режим: случайные валидные и невалидные данные");
         System.out.println("Остановить сервер: Ctrl+C");
     }
 
-    private static void handleRequest(HttpExchange exchange)
-            throws IOException {
-
-        String method = exchange.getRequestMethod();
-        String path = exchange.getRequestURI().getPath();
-
-        // Разрешаем только GET
-        if (!"GET".equalsIgnoreCase(method)) {
-
-            send(
-                    exchange,
-                    405,
-                    "{\"error\":\"Method Not Allowed\"}"
-            );
-
+    private static void handleRequest(HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            send(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
             return;
         }
 
-        String endpoint = path
+        String endpoint = exchange.getRequestURI().getPath()
                 .substring(BASE.length())
                 .replaceAll("^/|/$", "");
 
-        // Разрешённые методы API
-        if (!List.of(
-                "fullName",
-                "snils",
-                "inn",
-                "email",
-                "identityCard"
-        ).contains(endpoint)) {
+        String value = switch (endpoint) {
+            case "fullName" -> randomValue(FULL_NAMES);
+            case "snils" -> randomValue(SNILS);
+            case "inn" -> randomValue(INNS);
+            case "email" -> randomValue(EMAILS);
+            case "identityCard" -> randomValue(IDENTITY_CARDS);
+            default -> null;
+        };
 
-            send(
-                    exchange,
-                    404,
-                    "{\"error\":\"Not Found\"}"
-            );
-
+        if (value == null) {
+            send(exchange, 404, "{\"error\":\"Not Found\"}");
             return;
         }
 
-        // Случайно выбираем клиента
-        Client client = CLIENTS.get(
-                RANDOM.nextInt(CLIENTS.size())
-        );
-
-        String value;
-
-        switch (endpoint) {
-
-            case "fullName":
-                value = client.fullName();
-                break;
-
-            case "snils":
-                value = client.snils();
-                break;
-
-            case "inn":
-                value = client.inn();
-                break;
-
-            case "email":
-                value = client.email();
-                break;
-
-            case "identityCard":
-                value = client.identityCard();
-                break;
-
-            default:
-                value = "";
-        }
-
-        String json = "{\"value\":\""
-                + escapeJson(value)
-                + "\"}";
-
-        send(exchange, 200, json);
+        send(exchange, 200, "{\"value\":\"" + escapeJson(value) + "\"}");
     }
 
-    private static void send(
-            HttpExchange exchange,
-            int status,
-            String body
-    ) throws IOException {
+    private static String randomValue(List<String> values) {
+        return values.get(RANDOM.nextInt(values.size()));
+    }
 
+    private static void send(HttpExchange exchange, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-
-        exchange.getResponseHeaders().set(
-                "Content-Type",
-                "application/json; charset=UTF-8"
-        );
-
-        exchange.sendResponseHeaders(
-                status,
-                bytes.length
-        );
-
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        exchange.sendResponseHeaders(status, bytes.length);
         try (OutputStream output = exchange.getResponseBody()) {
             output.write(bytes);
         }
     }
 
     private static String escapeJson(String value) {
-
-        return value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
-
-    private record Client(
-            String fullName,
-            String snils,
-            String inn,
-            String email,
-            String identityCard
-    ) {}
 }
