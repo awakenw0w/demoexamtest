@@ -34,3 +34,15 @@
     -fx-font-size: 12px;
     -fx-text-fill: #555555;
 }
+
+.puzzle-tile {
+    -fx-background-color: white;
+    -fx-border-color: #999999;
+    -fx-border-width: 1px;
+    -fx-padding: 2px;
+}
+
+.puzzle-tile.selected {
+    -fx-border-color: #1677d2;
+    -fx-border-width: 3px;
+}
