@@ -30,6 +30,7 @@ import javafx.stage.Stage;
 import ru.demoexam.algorithms.api.ApiDataType;
 import ru.demoexam.algorithms.api.ApiResponse;
 import ru.demoexam.algorithms.api.TransferSimulatorClient;
+import ru.demoexam.algorithms.auth.PuzzleCaptcha;
 import ru.demoexam.algorithms.auth.UserRepository;
 
 import java.math.BigDecimal;
@@ -120,6 +121,7 @@ public class AlgorithmsApp extends Application {
         PasswordField passwordField = new PasswordField();
         passwordField.setPromptText("Пароль");
         passwordField.setMaxWidth(280);
+        PuzzleCaptcha puzzleCaptcha = new PuzzleCaptcha();
         Button loginButton = new Button("Войти");
 
         loginButton.setOnAction(event -> {
@@ -132,12 +134,40 @@ public class AlgorithmsApp extends Application {
             }
 
             try {
-                if (!userRepository.authenticate(login, password)) {
-                    showError("Ошибка входа", "Вы ввели неверный логин или пароль. "
-                            + "Пожалуйста проверьте ещё раз введенные данные");
+                if (userRepository.isBlocked(login)) {
+                    showError("Учётная запись заблокирована",
+                            "Вы заблокированы. Обратитесь к администратору");
                     return;
                 }
 
+                // Ошибка пазла относится к той же серии, что и неверный пароль.
+                if (!puzzleCaptcha.isSolved()) {
+                    boolean isBlocked = userRepository.recordFailedAttempt(login);
+                    puzzleCaptcha.shuffle();
+                    if (isBlocked) {
+                        showBlockedMessage();
+                    } else {
+                        showError("Проверка не пройдена", "Пазл собран неверно. "
+                                + "Соберите изображение правильно и попробуйте ещё раз. "
+                                + "После трёх ошибок учётная запись блокируется.");
+                    }
+                    return;
+                }
+
+                if (!userRepository.authenticate(login, password)) {
+                    boolean isBlocked = userRepository.recordFailedAttempt(login);
+                    puzzleCaptcha.shuffle();
+                    if (isBlocked) {
+                        showBlockedMessage();
+                    } else {
+                        showError("Ошибка входа", "Вы ввели неверный логин или пароль. "
+                                + "Пожалуйста проверьте ещё раз введенные данные. "
+                                + "После трёх ошибок учётная запись блокируется.");
+                    }
+                    return;
+                }
+
+                userRepository.resetFailedAttempts(login);
                 showInfo("Вы успешно авторизовались");
                 showMainWindow(stage);
             } catch (SQLException exception) {
@@ -150,18 +180,26 @@ public class AlgorithmsApp extends Application {
         VBox loginContent = new VBox(12,
                 new Label("Логин"), loginField,
                 new Label("Пароль"), passwordField,
+                puzzleCaptcha,
                 loginButton);
-        loginContent.setPadding(new Insets(24));
+        loginContent.setPadding(new Insets(18));
+        loginContent.setAlignment(Pos.CENTER);
 
-        Scene scene = new Scene(loginContent, 380, 320);
+        Scene scene = new Scene(loginContent, 430, 640);
         scene.getStylesheets().add(
                 getClass().getResource("app.css").toExternalForm()
         );
         stage.setTitle("Авторизация");
-        stage.setMinWidth(400);
-        stage.setMinHeight(340);
+        stage.setMinWidth(450);
+        stage.setMinHeight(660);
         stage.setScene(scene);
         stage.show();
+    }
+
+    // Показывает сообщение о блокировке, которое указано в задании.
+    private void showBlockedMessage() {
+        showError("Учётная запись заблокирована",
+                "Вы заблокированы. Обратитесь к администратору");
     }
 
     // После входа открывается прежний интерфейс программы.
