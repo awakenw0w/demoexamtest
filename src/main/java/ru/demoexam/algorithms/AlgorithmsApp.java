@@ -15,6 +15,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextArea;
@@ -29,8 +30,10 @@ import javafx.stage.Stage;
 import ru.demoexam.algorithms.api.ApiDataType;
 import ru.demoexam.algorithms.api.ApiResponse;
 import ru.demoexam.algorithms.api.TransferSimulatorClient;
+import ru.demoexam.algorithms.auth.UserRepository;
 
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -92,9 +95,77 @@ public class AlgorithmsApp extends Application {
                     "Выберите тип данных и получите значение с сервера."
             );
 
+    private UserRepository userRepository;
+
+    // Сначала создаётся база, затем показывается окно входа.
     @Override
     public void start(Stage stage) {
+        try {
+            userRepository = new UserRepository();
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось открыть базу пользователей. "
+                    + "Проверьте доступ к папке приложения и перезапустите программу.");
+            Platform.exit();
+            return;
+        }
+        showLoginWindow(stage);
+    }
 
+    // Создаёт простую форму и проверяет введённые логин и пароль.
+    private void showLoginWindow(Stage stage) {
+        Label title = new Label("Вход в программу");
+        TextField loginField = new TextField();
+        loginField.setPromptText("Логин");
+        loginField.setMaxWidth(280);
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("Пароль");
+        passwordField.setMaxWidth(280);
+        Button loginButton = new Button("Войти");
+
+        loginButton.setOnAction(event -> {
+            String login = loginField.getText().trim();
+            String password = passwordField.getText();
+
+            if (login.isEmpty() || password.isEmpty()) {
+                showError("Не заполнены данные", "Введите логин и пароль, затем нажмите «Войти».");
+                return;
+            }
+
+            try {
+                if (!userRepository.authenticate(login, password)) {
+                    showError("Ошибка входа", "Вы ввели неверный логин или пароль. "
+                            + "Пожалуйста проверьте ещё раз введенные данные");
+                    return;
+                }
+
+                showInfo("Вы успешно авторизовались");
+                showMainWindow(stage);
+            } catch (SQLException exception) {
+                showError("Ошибка базы данных", "Не удалось проверить данные пользователя. "
+                        + "Перезапустите программу или обратитесь к администратору.");
+            }
+        });
+        passwordField.setOnAction(event -> loginButton.fire());
+
+        VBox loginContent = new VBox(12,
+                new Label("Логин"), loginField,
+                new Label("Пароль"), passwordField,
+                loginButton);
+        loginContent.setPadding(new Insets(24));
+
+        Scene scene = new Scene(loginContent, 380, 320);
+        scene.getStylesheets().add(
+                getClass().getResource("app.css").toExternalForm()
+        );
+        stage.setTitle("Авторизация");
+        stage.setMinWidth(400);
+        stage.setMinHeight(340);
+        stage.setScene(scene);
+        stage.show();
+    }
+
+    // После входа открывается прежний интерфейс программы.
+    private void showMainWindow(Stage stage) {
         configureControls();
 
         VBox content = new VBox(
@@ -948,6 +1019,7 @@ public class AlgorithmsApp extends Application {
                         ButtonType.OK
                 );
 
+        alert.setTitle("Информация");
         alert.setHeaderText(null);
         alert.showAndWait();
     }
