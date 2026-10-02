@@ -96,7 +96,14 @@ public class AlgorithmsApp extends Application {
                     "Выберите тип данных и получите значение с сервера."
             );
 
+    private final ListView<String> userAccountsList = new ListView<>();
+    private final TextField userLoginField = new TextField();
+    private final PasswordField userPasswordField = new PasswordField();
+    private final ComboBox<String> userRoleComboBox = new ComboBox<>();
+    private final Label userAccountStatus = new Label("Выберите пользователя.");
     private UserRepository userRepository;
+    private String currentUserRole;
+    private String selectedUserLogin;
 
     // Сначала создаётся база, затем показывается окно входа.
     @Override
@@ -168,6 +175,7 @@ public class AlgorithmsApp extends Application {
                 }
 
                 userRepository.resetFailedAttempts(login);
+                currentUserRole = userRepository.getRole(login);
                 showInfo("Вы успешно авторизовались");
                 showMainWindow(stage);
             } catch (SQLException exception) {
@@ -218,6 +226,9 @@ public class AlgorithmsApp extends Application {
         );
 
         content.setPadding(new Insets(24));
+        if ("admin".equals(currentUserRole)) {
+            content.getChildren().add(userManagementPane());
+        }
 
         ScrollPane contentScrollPane =
                 new ScrollPane(content);
@@ -257,6 +268,155 @@ public class AlgorithmsApp extends Application {
         stage.setMinHeight(600);
         stage.setScene(scene);
         stage.show();
+    }
+
+    // Создаёт раздел управления учётными записями только для администратора.
+    private VBox userManagementPane() {
+        Label heading = new Label("Управление пользователями");
+        heading.getStyleClass().add("section-title");
+
+        userAccountsList.setPrefHeight(130);
+        userAccountsList.setPlaceholder(new Label("Пользователей пока нет."));
+        userLoginField.setPromptText("Логин пользователя");
+        userPasswordField.setPromptText("Новый пароль (необязательно при изменении)");
+        userRoleComboBox.getItems().setAll("Пользователь", "Администратор");
+        userRoleComboBox.getSelectionModel().select("Пользователь");
+        userAccountsList.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldLogin, newLogin) -> {
+                    if (newLogin != null) {
+                        loadUserToForm(newLogin);
+                    }
+                }
+        );
+
+        Button addUserButton = new Button("Добавить пользователя");
+        addUserButton.setOnAction(event -> addUserFromForm());
+        Button saveUserButton = new Button("Сохранить изменения");
+        saveUserButton.setOnAction(event -> saveUserChanges());
+        Button unblockUserButton = new Button("Снять блокировку");
+        unblockUserButton.setOnAction(event -> unblockSelectedUser());
+
+        refreshUserList();
+        return new VBox(8,
+                heading,
+                userAccountsList,
+                new Label("Логин"), userLoginField,
+                new Label("Новый пароль"), userPasswordField,
+                new Label("Роль"), userRoleComboBox,
+                userAccountStatus,
+                new HBox(8, addUserButton, saveUserButton, unblockUserButton));
+    }
+
+    // Загружает логин, роль и статус выбранной учётной записи в форму.
+    private void loadUserToForm(String login) {
+        try {
+            selectedUserLogin = login;
+            userLoginField.setText(login);
+            userPasswordField.clear();
+            userRoleComboBox.getSelectionModel().select(roleToDisplay(userRepository.getRole(login)));
+            if (userRepository.isBlocked(login)) {
+                userAccountStatus.setText("Статус: заблокирован");
+            } else {
+                userAccountStatus.setText("Статус: активен");
+            }
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось загрузить данные пользователя.");
+        }
+    }
+
+    // Обновляет список логинов из базы данных.
+    private void refreshUserList() {
+        try {
+            userAccountsList.getItems().setAll(userRepository.getAllLogins());
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось загрузить список пользователей.");
+        }
+    }
+
+    // Проверяет поля и создаёт новую учётную запись.
+    private void addUserFromForm() {
+        String login = userLoginField.getText().trim();
+        String password = userPasswordField.getText();
+        if (login.isEmpty() || password.isEmpty()) {
+            showError("Не заполнены данные", "Введите логин и пароль нового пользователя.");
+            return;
+        }
+
+        try {
+            if (userRepository.loginExists(login)) {
+                showInfo("Пользователь с таким логином уже существует. Введите другой логин.");
+                return;
+            }
+
+            userRepository.createUser(login, password, roleFromSelection());
+            userPasswordField.clear();
+            refreshUserList();
+            userAccountsList.getSelectionModel().select(login);
+            showInfo("Пользователь добавлен.");
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось добавить пользователя. "
+                    + "Проверьте данные и попробуйте ещё раз.");
+        }
+    }
+
+    // Сохраняет изменения выбранного пользователя, пароль можно не менять.
+    private void saveUserChanges() {
+        if (selectedUserLogin == null) {
+            showError("Пользователь не выбран", "Сначала выберите пользователя в списке.");
+            return;
+        }
+
+        String newLogin = userLoginField.getText().trim();
+        if (newLogin.isEmpty()) {
+            showError("Не заполнен логин", "Введите логин пользователя.");
+            return;
+        }
+
+        try {
+            if (!newLogin.equals(selectedUserLogin) && userRepository.loginExists(newLogin)) {
+                showInfo("Пользователь с таким логином уже существует. Введите другой логин.");
+                return;
+            }
+
+            userRepository.updateUser(
+                    selectedUserLogin,
+                    newLogin,
+                    userPasswordField.getText(),
+                    roleFromSelection());
+            selectedUserLogin = newLogin;
+            userPasswordField.clear();
+            refreshUserList();
+            userAccountsList.getSelectionModel().select(newLogin);
+            showInfo("Изменения пользователя сохранены.");
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось сохранить изменения пользователя.");
+        }
+    }
+
+    // Снимает блокировку с выбранной учётной записи.
+    private void unblockSelectedUser() {
+        if (selectedUserLogin == null) {
+            showError("Пользователь не выбран", "Сначала выберите пользователя в списке.");
+            return;
+        }
+
+        try {
+            userRepository.unblockUser(selectedUserLogin);
+            userAccountStatus.setText("Статус: активен");
+            showInfo("Блокировка пользователя снята.");
+        } catch (SQLException exception) {
+            showError("Ошибка базы данных", "Не удалось снять блокировку.");
+        }
+    }
+
+    // Преобразует выбранное русское название роли в значение для базы данных.
+    private String roleFromSelection() {
+        return "Администратор".equals(userRoleComboBox.getValue()) ? "admin" : "user";
+    }
+
+    // Преобразует значение роли из базы в подпись для выпадающего списка.
+    private String roleToDisplay(String role) {
+        return "admin".equals(role) ? "Администратор" : "Пользователь";
     }
 
     // Настройка элементов интерфейса
