@@ -6,6 +6,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Отвечает за создание базы пользователей и проверку данных для входа. */
 public class UserRepository {
@@ -147,6 +149,96 @@ public class UserRepository {
 
     /** Обнуляет ошибки после успешной авторизации. */
     public void resetFailedAttempts(String login) throws SQLException {
+        String sql = "UPDATE users SET failed_attempts = 0, is_blocked = 0 WHERE login = ?";
+
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, login);
+            statement.executeUpdate();
+        }
+    }
+
+    /** Возвращает список логинов для окна управления пользователями. */
+    public List<String> getAllLogins() throws SQLException {
+        List<String> logins = new ArrayList<>();
+        String sql = "SELECT login FROM users ORDER BY login";
+
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            while (result.next()) {
+                logins.add(result.getString("login"));
+            }
+        }
+        return logins;
+    }
+
+    /** Возвращает роль пользователя или null, если такого логина нет. */
+    public String getRole(String login) throws SQLException {
+        String sql = "SELECT role FROM users WHERE login = ?";
+
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, login);
+
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getString("role") : null;
+            }
+        }
+    }
+
+    /** Проверяет, занят ли логин другим пользователем. */
+    public boolean loginExists(String login) throws SQLException {
+        String sql = "SELECT 1 FROM users WHERE login = ?";
+
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, login);
+
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next();
+            }
+        }
+    }
+
+    /** Создаёт пользователя с выбранной ролью и хеширует его пароль. */
+    public void createUser(String login, String password, String role) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL)) {
+            addUser(connection, login, password, role);
+        }
+    }
+
+    /** Меняет логин и роль, а пароль обновляет только если поле не пустое. */
+    public void updateUser(String oldLogin, String newLogin, String password, String role)
+            throws SQLException {
+        boolean changePassword = password != null && !password.isBlank();
+        String sql;
+        if (changePassword) {
+            sql = "UPDATE users SET login = ?, password_hash = ?, role = ? WHERE login = ?";
+        } else {
+            sql = "UPDATE users SET login = ?, role = ? WHERE login = ?";
+        }
+
+        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, newLogin);
+            if (changePassword) {
+                statement.setString(2, PasswordHasher.hashPassword(password));
+                statement.setString(3, role);
+                statement.setString(4, oldLogin);
+            } else {
+                statement.setString(2, role);
+                statement.setString(3, oldLogin);
+            }
+
+            if (statement.executeUpdate() == 0) {
+                throw new SQLException("Пользователь не найден.");
+            }
+        }
+    }
+
+    /** Снимает блокировку и сбрасывает счётчик ошибок пользователя. */
+    public void unblockUser(String login) throws SQLException {
         String sql = "UPDATE users SET failed_attempts = 0, is_blocked = 0 WHERE login = ?";
 
         try (Connection connection = DriverManager.getConnection(DATABASE_URL);
